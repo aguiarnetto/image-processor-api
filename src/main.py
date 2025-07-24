@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Adiciona o diretório onde este arquivo está ao sys.path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from flask import Flask
 from flask_cors import CORS
 from routes.image_processor import image_bp
