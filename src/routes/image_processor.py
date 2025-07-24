@@ -1,55 +1,68 @@
 import cv2
 import numpy as np
-from flask import Blueprint, request, send_file, jsonify
-from io import BytesIO
-from PIL import Image
+from flask import Blueprint, request, send_file
+import os
+import uuid
 
-image_bp = Blueprint("image_processor", __name__)
+image_bp = Blueprint('image_bp', __name__)
 
-@image_bp.route("/process-image", methods=["POST"])
+@image_bp.route('/process-image', methods=['POST'])
 def process_image():
-    try:
-        file = request.files["image"]
-        in_memory_file = BytesIO()
-        file.save(in_memory_file)
-        data = np.frombuffer(in_memory_file.getvalue(), dtype=np.uint8)
-        img_color = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    file = request.files.get('image')
+    if not file:
+        return 'No image uploaded', 400
 
-        # 1. Tons de cinza
-        gray = cv2.cvtColor(img_color, cv2.COLOR_BGR2GRAY)
+    # Ler a imagem
+    in_memory_file = np.frombuffer(file.read(), np.uint8)
+    img = cv2.imdecode(in_memory_file, cv2.IMREAD_COLOR)
 
-        # 2. Duplicar camada
-        duplicated = gray.copy()
+    # Etapa 1: Tons de cinza
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    save_step(gray, "1_gray")
 
-        # 3. Inverter camada superior
-        inverted = cv2.bitwise_not(duplicated)
+    # Etapa 2 e 3: duplicar e inverter
+    inverted = cv2.bitwise_not(gray)
+    save_step(inverted, "2_inverted")
 
-        # 4. Subexposição (blending com divisão)
-        blend = cv2.divide(gray, 255 - inverted, scale=256)
+    # Etapa 4: Subexposição (dodge)
+    inverted_blur = cv2.GaussianBlur(inverted, (0, 0), 2.0)
+    dodge = cv2.divide(gray, 255 - inverted_blur, scale=256.0)
+    save_step(dodge, "3_dodge")
 
-        # 5. Desfoque gaussiano (raio 2.0)
-        blurred = cv2.GaussianBlur(blend, (0, 0), sigmaX=2)
+    # Etapa 5: Níveis de entrada: 223;1.32;255
+    levels_adjusted = apply_levels(dodge, 223, 1.32, 255)
+    save_step(levels_adjusted, "4_levels1")
 
-        # 6. Ajuste de níveis: 223;1.32;255
-        norm1 = np.clip(((blurred.astype(np.float32) - 223) / (255 - 223)) ** (1/1.32), 0, 1)
-        leveled1 = (norm1 * 255).astype(np.uint8)
+    # Etapa 6: Máscara de nitidez (200%, raio 1.4, limiar 6)
+    sharpened = apply_unsharp_mask(levels_adjusted, 1.4, 6, amount=2.0)
+    save_step(sharpened, "5_sharpened")
 
-        # 7. Máscara de nitidez: 200% 1.4px limiar 6
-        blur_nitidez = cv2.GaussianBlur(leveled1, (0, 0), sigmaX=1.4)
-        mask = leveled1 - blur_nitidez
-        mask = np.where(mask > 6, mask, 0).astype(np.uint8)
-        sharpened = cv2.addWeighted(leveled1, 1.0, mask, 2.0, 0)
+    # Etapa 7: Níveis finais: 0; 0.70; 164
+    final = apply_levels(sharpened, 0, 0.70, 164)
+    save_step(final, "6_levels2")
 
-        # 8. Níveis: 0;0.70;164
-        norm2 = np.clip((sharpened.astype(np.float32) / 255.0) / 0.70, 0, 164/255.0)
-        final = (norm2 * 255).astype(np.uint8)
+    # Salvar imagem final para envio
+    temp_filename = f"/tmp/{uuid.uuid4()}.jpg"
+    cv2.imwrite(temp_filename, final)
 
-        # 9. Salvar como PNG
-        pil_img = Image.fromarray(final)
-        buf = BytesIO()
-        pil_img.save(buf, format="PNG")
-        buf.seek(0)
-        return send_file(buf, mimetype="image/png")
+    return send_file(temp_filename, mimetype='image/jpeg')
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+
+def apply_levels(img, in_black, gamma, in_white):
+    # Normalizar imagem
+    img = img.astype(np.float32) / 255.0
+    img = np.clip((img - in_black / 255.0) / ((in_white - in_black) / 255.0), 0, 1)
+    img = np.power(img, 1.0 / gamma)
+    return np.clip(img * 255, 0, 255).astype(np.uint8)
+
+def apply_unsharp_mask(image, radius, threshold, amount=1.0):
+    blurred = cv2.GaussianBlur(image, (0, 0), radius)
+    mask = cv2.absdiff(image, blurred)
+    low_contrast_mask = mask < threshold
+    sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, 0)
+    sharpened[low_contrast_mask] = image[low_contrast_mask]
+    return sharpened
+
+def save_step(img, name):
+    path = f"/tmp/{name}.jpg"
+    cv2.imwrite(path, img)
