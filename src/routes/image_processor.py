@@ -42,7 +42,7 @@ def process_image():
 
     # Etapa 7: Salvar imagem final
     temp_filename = f"/tmp/{uuid.uuid4()}.jpg"
-    cv2.imwrite(temp_filename, step6)
+    cv2.imwrite(temp_filename, step6, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
     return send_file(temp_filename, mimetype='image/jpeg')
 
