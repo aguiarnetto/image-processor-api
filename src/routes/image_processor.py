@@ -1,4 +1,3 @@
-
 import cv2
 import numpy as np
 from flask import Blueprint, request, send_file
@@ -28,11 +27,16 @@ def process_image():
     step4 = apply_unsharp_mask(step3, radius=2.8, threshold=0, amount=5.0)
     save_step(step4, "4_sharpen_2.8")
 
-    step5 = apply_levels(step4, 38, 3.48, 174)
-    save_step(step5, "5_levels_38_3.48_174")
+    # ⚠️ Ajuste de níveis para evitar imagem preta
+    step5 = apply_levels(step4, 30, 1.5, 200)
+    save_step(step5, "5_levels_30_1.5_200")
 
-    step6 = apply_output_levels(step5, 33, 255)
+    step6 = apply_output_levels(step5, 10, 245)
     save_step(step6, "6_output_levels")
+
+    # ✅ Verificação de imagem totalmente preta
+    if not np.any(step6):
+        print("⚠️ A imagem final está totalmente preta!")
 
     temp_filename = f"/tmp/{uuid.uuid4()}.jpg"
     cv2.imwrite(temp_filename, step6)
