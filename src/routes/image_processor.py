@@ -59,8 +59,10 @@ def process_image():
 
     print(f"Imagem salva em: {output_path}")  # Log opcional para debug
 
-    return send_file(
+  return send_file(
     output_path,
     mimetype="image/png",
     as_attachment=False,
     download_name="processed.png"
+)
+
