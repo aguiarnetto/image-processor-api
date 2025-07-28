@@ -1,0 +1,5 @@
+mkdir -p outputs
+touch outputs/.gitkeep
+git add outputs/.gitkeep
+git commit -m "Cria diretório outputs com .gitkeep"
+git push
