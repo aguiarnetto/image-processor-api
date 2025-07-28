@@ -48,8 +48,15 @@ def process_image():
     processed_img = photoshop_style_sketch(img)
 
     filename = f"{uuid.uuid4().hex}.png"
-    output_path = os.path.join("outputs", filename)
-    os.makedirs("outputs", exist_ok=True)
+
+    # Gera caminho absoluto para pasta 'outputs'
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    output_dir = os.path.join(BASE_DIR, 'outputs')
+    os.makedirs(output_dir, exist_ok=True)
+
+    output_path = os.path.join(output_dir, filename)
     cv2.imwrite(output_path, processed_img)
+
+    print(f"Imagem salva em: {output_path}")  # Log opcional para debug
 
     return send_file(output_path, mimetype="image/png")
