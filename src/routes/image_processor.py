@@ -49,7 +49,6 @@ def process_image():
 
     filename = f"{uuid.uuid4().hex}.png"
 
-    # Gera caminho absoluto para pasta 'outputs'
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     output_dir = os.path.join(BASE_DIR, 'outputs')
     os.makedirs(output_dir, exist_ok=True)
@@ -57,12 +56,11 @@ def process_image():
     output_path = os.path.join(output_dir, filename)
     cv2.imwrite(output_path, processed_img)
 
-    print(f"Imagem salva em: {output_path}")  # Log opcional para debug
+    print(f"Imagem salva em: {output_path}")
 
-  return send_file(
-    output_path,
-    mimetype="image/png",
-    as_attachment=False,
-    download_name="processed.png"
-)
-
+    return send_file(
+        output_path,
+        mimetype="image/png",
+        as_attachment=False,
+        download_name="processed.png"
+    )
