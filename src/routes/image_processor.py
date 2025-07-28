@@ -33,8 +33,8 @@ def photoshop_style_sketch(img):
     final = apply_levels(sharpened, black=0, gamma=0.70, white=164)
     return final
 
-@image_bp.route("/upload", methods=["POST"])
-def upload_image():
+@image_bp.route("/process-image", methods=["POST"])
+def process_image():
     if "image" not in request.files:
         return jsonify({"error": "Nenhuma imagem enviada"}), 400
 
