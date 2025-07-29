@@ -31,7 +31,18 @@ def photoshop_style_sketch(img):
     leveled = apply_levels(dodged, black=223, gamma=1.32, white=255)
     sharpened = apply_unsharp_mask(leveled, amount=2.0, radius=1.4, threshold=6)
     final = apply_levels(sharpened, black=0, gamma=0.70, white=164)
-    return final
+    
+    # CORREÇÃO: Converter para RGB com fundo branco sólido
+    # Criar uma imagem RGB com fundo branco
+    height, width = final.shape
+    rgb_image = np.ones((height, width, 3), dtype=np.uint8) * 255  # Fundo branco
+    
+    # Aplicar a imagem processada nos 3 canais RGB
+    rgb_image[:, :, 0] = final  # Canal R
+    rgb_image[:, :, 1] = final  # Canal G
+    rgb_image[:, :, 2] = final  # Canal B
+    
+    return rgb_image
 
 @image_bp.route("/process-image", methods=["POST"])
 def process_image():
@@ -54,6 +65,8 @@ def process_image():
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, filename)
+    
+    # CORREÇÃO: Salvar como RGB em vez de escala de cinza
     cv2.imwrite(output_path, processed_img)
 
     print(f"Imagem salva em: {output_path}")
