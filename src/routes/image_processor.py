@@ -24,25 +24,16 @@ def apply_unsharp_mask(image, amount=2.0, radius=1.4, threshold=6):
 
 def photoshop_style_sketch(img):
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    duplicated = gray.copy()
-    inverted = cv2.bitwise_not(duplicated)
+    inverted = cv2.bitwise_not(gray)
     blurred = cv2.GaussianBlur(inverted, (0, 0), sigmaX=2.0, sigmaY=2.0)
     dodged = color_dodge(gray, blurred)
     leveled = apply_levels(dodged, black=223, gamma=1.32, white=255)
     sharpened = apply_unsharp_mask(leveled, amount=2.0, radius=1.4, threshold=6)
     final = apply_levels(sharpened, black=0, gamma=0.70, white=164)
-    
-    # CORREÇÃO: Converter para RGB com fundo branco sólido
-    # Criar uma imagem RGB com fundo branco
-    height, width = final.shape
-    rgb_image = np.ones((height, width, 3), dtype=np.uint8) * 255  # Fundo branco
-    
-    # Aplicar a imagem processada nos 3 canais RGB
-    rgb_image[:, :, 0] = final  # Canal R
-    rgb_image[:, :, 1] = final  # Canal G
-    rgb_image[:, :, 2] = final  # Canal B
-    
-    return rgb_image
+
+    # Converter imagem em RGB com fundo branco (garante ausência de transparência)
+    rgb = cv2.cvtColor(final, cv2.COLOR_GRAY2BGR)
+    return rgb
 
 @image_bp.route("/process-image", methods=["POST"])
 def process_image():
@@ -58,22 +49,19 @@ def process_image():
 
     processed_img = photoshop_style_sketch(img)
 
-    filename = f"{uuid.uuid4().hex}.png"
-
+    filename = f"{uuid.uuid4().hex}.jpg"
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     output_dir = os.path.join(BASE_DIR, 'outputs')
     os.makedirs(output_dir, exist_ok=True)
 
     output_path = os.path.join(output_dir, filename)
-    
-    # CORREÇÃO: Salvar como RGB em vez de escala de cinza
-    cv2.imwrite(output_path, processed_img)
+    cv2.imwrite(output_path, processed_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
     print(f"Imagem salva em: {output_path}")
 
     return send_file(
         output_path,
-        mimetype="image/png",
+        mimetype="image/jpeg",
         as_attachment=False,
-        download_name="processed.png"
+        download_name="processed.jpg"
     )
