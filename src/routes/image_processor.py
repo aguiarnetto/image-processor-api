@@ -1,7 +1,10 @@
 import os
 import uuid
+import base64
 import cv2
 import numpy as np
+from io import BytesIO
+from PIL import Image
 from flask import Blueprint, request, jsonify, send_file
 from flask import current_app as app
 
@@ -31,21 +34,33 @@ def photoshop_style_sketch(img):
     sharpened = apply_unsharp_mask(leveled, amount=2.0, radius=1.4, threshold=6)
     final = apply_levels(sharpened, black=0, gamma=0.70, white=164)
 
-    # Converter imagem em RGB com fundo branco (garante ausência de transparência)
     rgb = cv2.cvtColor(final, cv2.COLOR_GRAY2BGR)
     return rgb
 
 @image_bp.route("/process-image", methods=["POST"])
 def process_image():
-    if "image" not in request.files:
-        return jsonify({"error": "Nenhuma imagem enviada"}), 400
+    img = None
 
-    file = request.files["image"]
-    img_bytes = np.frombuffer(file.read(), np.uint8)
-    img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+    # Tenta obter imagem via form-data (upload de arquivo)
+    if "image" in request.files:
+        file = request.files["image"]
+        img_bytes = np.frombuffer(file.read(), np.uint8)
+        img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+
+    else:
+        # Tenta obter imagem em base64 via JSON
+        data = request.get_json(silent=True)
+        if data and "image_base64" in data:
+            image_b64 = data["image_base64"].split(",")[-1]  # remove header data:image/...
+            try:
+                img_data = base64.b64decode(image_b64)
+                pil_img = Image.open(BytesIO(img_data)).convert("RGB")
+                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+            except Exception as e:
+                return jsonify({"error": f"Erro ao decodificar imagem base64: {str(e)}"}), 400
 
     if img is None:
-        return jsonify({"error": "Falha ao processar a imagem"}), 400
+        return jsonify({"error": "Nenhuma imagem válida enviada"}), 400
 
     processed_img = photoshop_style_sketch(img)
 
