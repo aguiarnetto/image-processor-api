@@ -52,8 +52,8 @@ def process_image():
         # Passo 2 - Níveis de entrada: 0 ; 2,25 ; 255
         gray = apply_levels(gray, 0, 2.25, 255)
 
-        # 🔹 Intensificar contraste em 30% antes dos Unsharp Masks
-        gray = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
+        # 🔹 Ajuste suave para intensificar preto e reduzir cinza sem perder detalhe
+        gray = apply_levels(gray, in_black=25, in_gamma=1.0, in_white=230)
 
         # Passo 3 - Máscara de nitidez: intensidade 500%, raio 3.4, limiar 0
         gray = unsharp_mask(gray, radius=3.4, amount=5.0, threshold=0)
