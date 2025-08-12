@@ -8,11 +8,9 @@ import numpy as np
 import cv2
 import time
 
-# Configura logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Cria o blueprint
 image_bp = Blueprint("image_processor", __name__)
 
 def apply_levels(img, in_black, in_gamma, in_white, out_black=0, out_white=255):
@@ -43,42 +41,35 @@ def process_image():
             return jsonify({"error": "Nenhum arquivo enviado"}), 400
 
         file = request.files["image"]
-
-        # Abre a imagem
         image = Image.open(file.stream).convert("RGB")
         logger.info(f"Tamanho original: {image.size}, formato: {image.format}")
 
-        # Converte para OpenCV (numpy)
         np_image = np.array(image)
 
-        # Passo 1 - Converter para tons de cinza
+        # Passo 1
         gray = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
-
-        # Passo 2 - Níveis de entrada: 0 ; 2,25 ; 255
+        # Passo 2
         gray = apply_levels(gray, 0, 2.25, 255)
-
-        # Passo 3 - Máscara de nitidez: intensidade 500%, raio 3.4, limiar 0
+        # Passo 3
         gray = unsharp_mask(gray, radius=3.4, amount=5.0, threshold=0)
-
-        # Passo 4 - Reaplicar máscara de nitidez: intensidade 500%, raio 2.8, limiar 0
+        # Passo 4
         gray = unsharp_mask(gray, radius=2.8, amount=5.0, threshold=0)
-
-        # Passo 5 - Níveis de entrada: 38 ; 3,48 ; 174
+        # Passo 5
         gray = apply_levels(gray, 38, 3.48, 174)
-
-        # Passo 6 - Níveis de saída: 33 ; 255
+        # Passo 6
         gray = apply_levels(gray, 0, 1.0, 255, out_black=33, out_white=255)
 
-        # Passo 7 - Salvar em PNG
-        result_img = Image.fromarray(gray)
+        # 🔹 Ajuste extra final para preto mais intenso e menos cinza
+        gray = apply_levels(gray, in_black=40, in_gamma=1.0, in_white=200, out_black=0, out_white=255)
+        gray = unsharp_mask(gray, radius=1.5, amount=3.0, threshold=0)
 
+        # Passo 7
+        result_img = Image.fromarray(gray)
         img_io = io.BytesIO()
         result_img.save(img_io, "PNG", quality=100)
         img_io.seek(0)
 
-        end_time = time.time()
-        process_time = round(end_time - start_time, 2)
-
+        process_time = round(time.time() - start_time, 2)
         mem = psutil.Process().memory_info().rss / 1024 / 1024
         logger.info(f"Processamento concluído em {process_time}s | Memória: {mem:.2f} MB")
 
