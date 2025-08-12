@@ -3,7 +3,7 @@ import io
 import logging
 import psutil
 from flask import Blueprint, request, send_file, jsonify
-from PIL import Image, ImageOps
+from PIL import Image
 import numpy as np
 import cv2
 import time
@@ -15,13 +15,29 @@ logger = logging.getLogger(__name__)
 # Cria o blueprint
 image_bp = Blueprint("image_processor", __name__)
 
+def apply_levels(img, in_black, in_gamma, in_white, out_black=0, out_white=255):
+    """Replica a função Levels do Photoshop."""
+    img = img.astype(np.float32)
+    img = np.clip((img - in_black) / (in_white - in_black), 0, 1)
+    img = np.power(img, 1.0 / in_gamma)
+    img = img * (out_white - out_black) + out_black
+    return np.clip(img, 0, 255).astype(np.uint8)
+
+def unsharp_mask(image, radius, amount, threshold):
+    """Replica Máscara de Nitidez do Photoshop."""
+    blurred = cv2.GaussianBlur(image, (0, 0), radius)
+    sharpened = cv2.addWeighted(image, 1 + amount, blurred, -amount, 0)
+    if threshold > 0:
+        low_contrast_mask = np.abs(image - blurred) < threshold
+        np.copyto(sharpened, image, where=low_contrast_mask)
+    return np.clip(sharpened, 0, 255)
+
 @image_bp.route("/process-image", methods=["POST"])
 def process_image():
     start_time = time.time()
     logger.info("Início do processamento de imagem")
 
     try:
-        # Verifica se o arquivo foi enviado
         if "image" not in request.files:
             logger.error("Nenhum arquivo enviado")
             return jsonify({"error": "Nenhum arquivo enviado"}), 400
@@ -32,24 +48,30 @@ def process_image():
         image = Image.open(file.stream).convert("RGB")
         logger.info(f"Tamanho original: {image.size}, formato: {image.format}")
 
-        # Converte para array OpenCV
+        # Converte para OpenCV (numpy)
         np_image = np.array(image)
+
+        # Passo 1 - Converter para tons de cinza
         gray = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
 
-        # --- PROCESSAMENTO FIXO PARA RESULTADO CONSISTENTE ---
-        # Ajusta contraste e brilho fixos
-        gray = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+        # Passo 2 - Níveis de entrada: 0 ; 2,25 ; 255
+        gray = apply_levels(gray, 0, 2.25, 255)
 
-        # Aplica detecção de bordas Canny com parâmetros fixos
-        edges = cv2.Canny(gray, threshold1=80, threshold2=150)
+        # Passo 3 - Máscara de nitidez: intensidade 500%, raio 3.4, limiar 0
+        gray = unsharp_mask(gray, radius=3.4, amount=5.0, threshold=0)
 
-        # Inverte as cores (para ficar linhas pretas em fundo branco)
-        edges = cv2.bitwise_not(edges)
+        # Passo 4 - Reaplicar máscara de nitidez: intensidade 500%, raio 2.8, limiar 0
+        gray = unsharp_mask(gray, radius=2.8, amount=5.0, threshold=0)
 
-        # Converte de volta para PIL
-        result_img = Image.fromarray(edges)
+        # Passo 5 - Níveis de entrada: 38 ; 3,48 ; 174
+        gray = apply_levels(gray, 38, 3.48, 174)
 
-        # Salva em buffer
+        # Passo 6 - Níveis de saída: 33 ; 255
+        gray = apply_levels(gray, 0, 1.0, 255, out_black=33, out_white=255)
+
+        # Passo 7 - Salvar em PNG
+        result_img = Image.fromarray(gray)
+
         img_io = io.BytesIO()
         result_img.save(img_io, "PNG", quality=100)
         img_io.seek(0)
@@ -57,7 +79,6 @@ def process_image():
         end_time = time.time()
         process_time = round(end_time - start_time, 2)
 
-        # Log de uso de memória
         mem = psutil.Process().memory_info().rss / 1024 / 1024
         logger.info(f"Processamento concluído em {process_time}s | Memória: {mem:.2f} MB")
 
