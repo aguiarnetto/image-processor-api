@@ -46,24 +46,32 @@ def process_image():
 
         np_image = np.array(image)
 
-        # Passo 1
+        # Passo 1 - Converter para tons de cinza
         gray = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
-        # Passo 2
+
+        # Passo 2 - Níveis de entrada: 0 ; 2,25 ; 255
         gray = apply_levels(gray, 0, 2.25, 255)
-        # Passo 3
+
+        # 🔹 Intensificar contraste em 30% antes dos Unsharp Masks
+        gray = cv2.convertScaleAbs(gray, alpha=1.3, beta=0)
+
+        # Passo 3 - Máscara de nitidez: intensidade 500%, raio 3.4, limiar 0
         gray = unsharp_mask(gray, radius=3.4, amount=5.0, threshold=0)
-        # Passo 4
+
+        # Passo 4 - Reaplicar máscara de nitidez: intensidade 500%, raio 2.8, limiar 0
         gray = unsharp_mask(gray, radius=2.8, amount=5.0, threshold=0)
-        # Passo 5
+
+        # Passo 5 - Níveis de entrada: 38 ; 3,48 ; 174
         gray = apply_levels(gray, 38, 3.48, 174)
-        # Passo 6
+
+        # Passo 6 - Níveis de saída: 33 ; 255
         gray = apply_levels(gray, 0, 1.0, 255, out_black=33, out_white=255)
 
         # 🔹 Ajuste extra final para preto mais intenso e menos cinza
         gray = apply_levels(gray, in_black=40, in_gamma=1.0, in_white=200, out_black=0, out_white=255)
         gray = unsharp_mask(gray, radius=1.5, amount=3.0, threshold=0)
 
-        # Passo 7
+        # Passo 7 - Salvar
         result_img = Image.fromarray(gray)
         img_io = io.BytesIO()
         result_img.save(img_io, "PNG", quality=100)
