@@ -1,105 +1,91 @@
 import os
-import uuid
-import base64
+import io
+import psutil
+import logging
+from datetime import datetime
+
 import cv2
 import numpy as np
-import logging
-import psutil
-from io import BytesIO
 from PIL import Image
-from flask import Blueprint, request, jsonify, send_file
-from flask import current_app as app
+from flask import Flask, request, jsonify, send_file
+from flask_cors import CORS
 
-# Configuração do logger
+# Configuração básica do Flask
+app = Flask(__name__)
+CORS(app)
+
+# Configuração de logs
 logging.basicConfig(
+    filename="app.log",
     level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
-logger = logging.getLogger(__name__)
 
-image_bp = Blueprint("image_bp", __name__)
-
-def log_memory_usage():
+def log_event(message):
+    """Grava evento no log com uso de memória."""
     process = psutil.Process(os.getpid())
-    mem = process.memory_info().rss / 1024 / 1024  # MB
-    logger.info(f"Uso atual de memória: {mem:.2f} MB")
+    mem_info = process.memory_info().rss / (1024 * 1024)
+    logging.info(f"{message} | Memória: {mem_info:.2f} MB")
 
-def color_dodge(base, blend):
-    result = cv2.divide(base, 255 - blend, scale=256)
-    return np.clip(result, 0, 255).astype(np.uint8)
+def process_image(image_bytes):
+    """Processa imagem para arte em linha otimizada."""
+    log_event("Iniciando processamento de imagem")
 
-def apply_levels(img, black, gamma, white):
-    img = img.astype(np.float32) / 255.0
-    img = np.clip((img - black / 255) * (1 / gamma) * (255 / (white - black)), 0, 1)
-    return (img * 255).astype(np.uint8)
+    # Ler imagem
+    img_array = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
-def apply_unsharp_mask(image, amount=2.0, radius=1.4, threshold=6):
-    blurred = cv2.GaussianBlur(image, (0, 0), sigmaX=radius)
-    mask = cv2.subtract(image, blurred)
-    sharpened = np.where(np.abs(mask) > threshold, image + amount * mask, image)
-    return np.clip(sharpened, 0, 255).astype(np.uint8)
+    # Redimensionar se necessário
+    max_size = 1024
+    h, w = img.shape[:2]
+    scale = max_size / max(h, w)
+    if scale < 1:
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
 
-def photoshop_style_sketch(img):
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    inverted = cv2.bitwise_not(gray)
-    blurred = cv2.GaussianBlur(inverted, (0, 0), sigmaX=2.0, sigmaY=2.0)
-    dodged = color_dodge(gray, blurred)
-    leveled = apply_levels(dodged, black=223, gamma=1.32, white=255)
-    sharpened = apply_unsharp_mask(leveled, amount=2.0, radius=1.4, threshold=6)
-    final = apply_levels(sharpened, black=0, gamma=0.70, white=164)
+    # Converter para cinza e suavizar
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    rgb = cv2.cvtColor(final, cv2.COLOR_GRAY2BGR)
-    return rgb
+    # Bordas fixas
+    edges = cv2.Canny(blurred, threshold1=50, threshold2=150)
 
-@image_bp.route("/process-image", methods=["POST"])
-def process_image():
-    logger.info("Recebida requisição para processar imagem")
-    log_memory_usage()
+    # Inverter para estilo "arte em linha"
+    inverted = cv2.bitwise_not(edges)
 
-    img = None
+    log_event("Processamento concluído")
 
-    if "image" in request.files:
-        file = request.files["image"]
-        logger.info(f"Arquivo recebido: {file.filename}, tamanho: {request.content_length} bytes")
-        img_bytes = np.frombuffer(file.read(), np.uint8)
-        img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
-    else:
-        data = request.get_json(silent=True)
-        if data and "image_base64" in data:
-            logger.info("Imagem recebida em base64 no JSON")
-            image_b64 = data["image_base64"].split(",")[-1]
-            try:
-                img_data = base64.b64decode(image_b64)
-                pil_img = Image.open(BytesIO(img_data)).convert("RGB")
-                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-            except Exception as e:
-                logger.error(f"Erro ao decodificar imagem base64: {e}")
-                return jsonify({"error": f"Erro ao decodificar imagem base64: {str(e)}"}), 400
+    # Retornar imagem como PNG
+    pil_img = Image.fromarray(inverted)
+    output = io.BytesIO()
+    pil_img.save(output, format="PNG")
+    output.seek(0)
+    return output
 
-    if img is None:
-        logger.warning("Nenhuma imagem válida enviada na requisição")
-        return jsonify({"error": "Nenhuma imagem válida enviada"}), 400
+@app.route("/process", methods=["POST"])
+def process_endpoint():
+    if "image" not in request.files:
+        return jsonify({"error": "Nenhuma imagem enviada"}), 400
 
-    logger.info("Imagem recebida e decodificada com sucesso. Iniciando processamento.")
-    log_memory_usage()
+    file = request.files["image"]
+    image_bytes = file.read()
 
-    processed_img = photoshop_style_sketch(img)
+    try:
+        processed_image = process_image(image_bytes)
+        return send_file(processed_image, mimetype="image/png")
+    except Exception as e:
+        log_event(f"Erro ao processar imagem: {e}")
+        return jsonify({"error": str(e)}), 500
 
-    filename = f"{uuid.uuid4().hex}.jpg"
-    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    output_dir = os.path.join(BASE_DIR, 'outputs')
-    os.makedirs(output_dir, exist_ok=True)
+@app.route("/status", methods=["GET"])
+def status():
+    process = psutil.Process(os.getpid())
+    mem_info = process.memory_info().rss / (1024 * 1024)
+    return jsonify({
+        "status": "OK",
+        "memory_usage_MB": round(mem_info, 2),
+        "timestamp": datetime.now().isoformat()
+    })
 
-    output_path = os.path.join(output_dir, filename)
-    cv2.imwrite(output_path, processed_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-
-    logger.info(f"Imagem salva em: {output_path}")
-    log_memory_usage()
-
-    return send_file(
-        output_path,
-        mimetype="image/jpeg",
-        as_attachment=False,
-        download_name="processed.jpg"
-    )
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
