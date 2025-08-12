@@ -1,91 +1,68 @@
-import os
+# routes/image_processor.py
 import io
-import psutil
 import logging
-from datetime import datetime
-
-import cv2
+import psutil
+from flask import Blueprint, request, send_file, jsonify
+from PIL import Image, ImageOps
 import numpy as np
-from PIL import Image
-from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
+import cv2
+import time
 
-# Configuração básica do Flask
-app = Flask(__name__)
-CORS(app)
+# Configura logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Configuração de logs
-logging.basicConfig(
-    filename="app.log",
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+# Cria o blueprint
+image_bp = Blueprint("image_processor", __name__)
 
-def log_event(message):
-    """Grava evento no log com uso de memória."""
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info().rss / (1024 * 1024)
-    logging.info(f"{message} | Memória: {mem_info:.2f} MB")
-
-def process_image(image_bytes):
-    """Processa imagem para arte em linha otimizada."""
-    log_event("Iniciando processamento de imagem")
-
-    # Ler imagem
-    img_array = np.frombuffer(image_bytes, np.uint8)
-    img = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-    # Redimensionar se necessário
-    max_size = 1024
-    h, w = img.shape[:2]
-    scale = max_size / max(h, w)
-    if scale < 1:
-        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-
-    # Converter para cinza e suavizar
-    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    # Bordas fixas
-    edges = cv2.Canny(blurred, threshold1=50, threshold2=150)
-
-    # Inverter para estilo "arte em linha"
-    inverted = cv2.bitwise_not(edges)
-
-    log_event("Processamento concluído")
-
-    # Retornar imagem como PNG
-    pil_img = Image.fromarray(inverted)
-    output = io.BytesIO()
-    pil_img.save(output, format="PNG")
-    output.seek(0)
-    return output
-
-@app.route("/process", methods=["POST"])
-def process_endpoint():
-    if "image" not in request.files:
-        return jsonify({"error": "Nenhuma imagem enviada"}), 400
-
-    file = request.files["image"]
-    image_bytes = file.read()
+@image_bp.route("/process-image", methods=["POST"])
+def process_image():
+    start_time = time.time()
+    logger.info("Início do processamento de imagem")
 
     try:
-        processed_image = process_image(image_bytes)
-        return send_file(processed_image, mimetype="image/png")
+        # Verifica se o arquivo foi enviado
+        if "image" not in request.files:
+            logger.error("Nenhum arquivo enviado")
+            return jsonify({"error": "Nenhum arquivo enviado"}), 400
+
+        file = request.files["image"]
+
+        # Abre a imagem
+        image = Image.open(file.stream).convert("RGB")
+        logger.info(f"Tamanho original: {image.size}, formato: {image.format}")
+
+        # Converte para array OpenCV
+        np_image = np.array(image)
+        gray = cv2.cvtColor(np_image, cv2.COLOR_RGB2GRAY)
+
+        # --- PROCESSAMENTO FIXO PARA RESULTADO CONSISTENTE ---
+        # Ajusta contraste e brilho fixos
+        gray = cv2.convertScaleAbs(gray, alpha=1.5, beta=0)
+
+        # Aplica detecção de bordas Canny com parâmetros fixos
+        edges = cv2.Canny(gray, threshold1=80, threshold2=150)
+
+        # Inverte as cores (para ficar linhas pretas em fundo branco)
+        edges = cv2.bitwise_not(edges)
+
+        # Converte de volta para PIL
+        result_img = Image.fromarray(edges)
+
+        # Salva em buffer
+        img_io = io.BytesIO()
+        result_img.save(img_io, "PNG", quality=100)
+        img_io.seek(0)
+
+        end_time = time.time()
+        process_time = round(end_time - start_time, 2)
+
+        # Log de uso de memória
+        mem = psutil.Process().memory_info().rss / 1024 / 1024
+        logger.info(f"Processamento concluído em {process_time}s | Memória: {mem:.2f} MB")
+
+        return send_file(img_io, mimetype="image/png")
+
     except Exception as e:
-        log_event(f"Erro ao processar imagem: {e}")
+        logger.exception("Erro ao processar imagem")
         return jsonify({"error": str(e)}), 500
-
-@app.route("/status", methods=["GET"])
-def status():
-    process = psutil.Process(os.getpid())
-    mem_info = process.memory_info().rss / (1024 * 1024)
-    return jsonify({
-        "status": "OK",
-        "memory_usage_MB": round(mem_info, 2),
-        "timestamp": datetime.now().isoformat()
-    })
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
