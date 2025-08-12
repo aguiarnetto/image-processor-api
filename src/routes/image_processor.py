@@ -3,12 +3,27 @@ import uuid
 import base64
 import cv2
 import numpy as np
+import logging
+import psutil
 from io import BytesIO
 from PIL import Image
 from flask import Blueprint, request, jsonify, send_file
 from flask import current_app as app
 
+# Configuração do logger
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger(__name__)
+
 image_bp = Blueprint("image_bp", __name__)
+
+def log_memory_usage():
+    process = psutil.Process(os.getpid())
+    mem = process.memory_info().rss / 1024 / 1024  # MB
+    logger.info(f"Uso atual de memória: {mem:.2f} MB")
 
 def color_dodge(base, blend):
     result = cv2.divide(base, 255 - blend, scale=256)
@@ -39,28 +54,35 @@ def photoshop_style_sketch(img):
 
 @image_bp.route("/process-image", methods=["POST"])
 def process_image():
+    logger.info("Recebida requisição para processar imagem")
+    log_memory_usage()
+
     img = None
 
-    # Tenta obter imagem via form-data (upload de arquivo)
     if "image" in request.files:
         file = request.files["image"]
+        logger.info(f"Arquivo recebido: {file.filename}, tamanho: {request.content_length} bytes")
         img_bytes = np.frombuffer(file.read(), np.uint8)
         img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
-
     else:
-        # Tenta obter imagem em base64 via JSON
         data = request.get_json(silent=True)
         if data and "image_base64" in data:
-            image_b64 = data["image_base64"].split(",")[-1]  # remove header data:image/...
+            logger.info("Imagem recebida em base64 no JSON")
+            image_b64 = data["image_base64"].split(",")[-1]
             try:
                 img_data = base64.b64decode(image_b64)
                 pil_img = Image.open(BytesIO(img_data)).convert("RGB")
                 img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
             except Exception as e:
+                logger.error(f"Erro ao decodificar imagem base64: {e}")
                 return jsonify({"error": f"Erro ao decodificar imagem base64: {str(e)}"}), 400
 
     if img is None:
+        logger.warning("Nenhuma imagem válida enviada na requisição")
         return jsonify({"error": "Nenhuma imagem válida enviada"}), 400
+
+    logger.info("Imagem recebida e decodificada com sucesso. Iniciando processamento.")
+    log_memory_usage()
 
     processed_img = photoshop_style_sketch(img)
 
@@ -72,7 +94,8 @@ def process_image():
     output_path = os.path.join(output_dir, filename)
     cv2.imwrite(output_path, processed_img, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
 
-    print(f"Imagem salva em: {output_path}")
+    logger.info(f"Imagem salva em: {output_path}")
+    log_memory_usage()
 
     return send_file(
         output_path,
