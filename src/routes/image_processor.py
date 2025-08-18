@@ -3,7 +3,7 @@ import io
 import logging
 import psutil
 from flask import Blueprint, request, send_file, jsonify
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import numpy as np
 import cv2
 import time
@@ -41,9 +41,14 @@ def process_image():
             return jsonify({"error": "Nenhum arquivo enviado"}), 400
 
         file = request.files["image"]
-        image = Image.open(file.stream).convert("RGB")
-        logger.info(f"Tamanho original: {image.size}, formato: {image.format}")
 
+        try:
+            image = Image.open(file.stream).convert("RGB")
+        except UnidentifiedImageError:
+            logger.error("Arquivo enviado não é uma imagem válida")
+            return jsonify({"error": "Arquivo inválido. Envie um PNG ou JPG"}), 400
+
+        logger.info(f"Tamanho original: {image.size}, formato: {image.format}")
         np_image = np.array(image)
 
         # Passo 1 - Converter para tons de cinza
@@ -52,37 +57,42 @@ def process_image():
         # Passo 2 - Níveis de entrada: 0 ; 2,25 ; 255
         gray = apply_levels(gray, 0, 2.25, 255)
 
-        # 🔹 Ajuste suave para intensificar preto e reduzir cinza sem perder detalhe
+        # Ajuste suave para intensificar preto e reduzir cinza
         gray = apply_levels(gray, in_black=25, in_gamma=1.0, in_white=230)
 
-        # Passo 3 - Máscara de nitidez: intensidade 500%, raio 3.4, limiar 0
+        # Passo 3 - Máscara de nitidez
         gray = unsharp_mask(gray, radius=3.4, amount=5.0, threshold=0)
 
-        # Passo 4 - Reaplicar máscara de nitidez: intensidade 500%, raio 2.8, limiar 0
+        # Passo 4 - Segunda nitidez
         gray = unsharp_mask(gray, radius=2.8, amount=5.0, threshold=0)
 
-        # Passo 5 - Níveis de entrada: 38 ; 3,48 ; 174
+        # Passo 5 - Níveis finos
         gray = apply_levels(gray, 38, 3.48, 174)
 
-        # Passo 6 - Níveis de saída: 33 ; 255
+        # Passo 6 - Saída
         gray = apply_levels(gray, 0, 1.0, 255, out_black=33, out_white=255)
 
-        # 🔹 Ajuste extra final para preto mais intenso e menos cinza
+        # Ajuste extra final
         gray = apply_levels(gray, in_black=40, in_gamma=1.0, in_white=200, out_black=0, out_white=255)
         gray = unsharp_mask(gray, radius=1.5, amount=3.0, threshold=0)
 
-        # Passo 7 - Salvar
+        # Converter para PNG
         result_img = Image.fromarray(gray)
         img_io = io.BytesIO()
-        result_img.save(img_io, "PNG", quality=100)
+        result_img.save(img_io, "PNG")
         img_io.seek(0)
 
         process_time = round(time.time() - start_time, 2)
         mem = psutil.Process().memory_info().rss / 1024 / 1024
         logger.info(f"Processamento concluído em {process_time}s | Memória: {mem:.2f} MB")
 
-        return send_file(img_io, mimetype="image/png")
+        return send_file(
+            img_io,
+            mimetype="image/png",
+            as_attachment=False,
+            download_name="processed.png"  # ✅ Evita erro no front
+        )
 
     except Exception as e:
-        logger.exception("Erro ao processar imagem")
-        return jsonify({"error": str(e)}), 500
+        logger.exception("Erro inesperado ao processar imagem")
+        return jsonify({"error": f"Erro interno: {str(e)}"}), 500
