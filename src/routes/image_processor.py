@@ -92,4 +92,4 @@ def process_image():
         logger.info("Aplicando ajuste final preto intenso e nitidez")
         gray = apply_levels(gray, 40, 1.0, 200, out_black=0, out_white=255)
         gray = unsharp_mask(gray, radius=1.5, amount=3.0, threshold=0)
-        logger.info(f"Min/max final: {gray.min()}/{gray.max()}"
+logger.info(f"Min/max final: {gray.min()}/{gray.max()}")
