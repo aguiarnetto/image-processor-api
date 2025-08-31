@@ -1,72 +1,33 @@
-import os
 import cv2
 import numpy as np
-from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
-from werkzeug.utils import secure_filename
+from PIL import Image
+import io
 
-# Configurações
-UPLOAD_FOLDER = "uploads"
-PROCESSED_FOLDER = "processed"
-ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg"}
+def process_image(file):
+    image = Image.open(file.stream).convert("RGB")
+    img_array = np.array(image)
 
-app = Flask(__name__)
-CORS(app)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
-app.config["PROCESSED_FOLDER"] = PROCESSED_FOLDER
+    # Converter para escala de cinza
+    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
 
-# Criar pastas se não existirem
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+    # Inverter a imagem
+    inverted = 255 - gray
 
-def allowed_file(filename):
-    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
+    # Aplicar blur para simular lápis
+    blur = cv2.GaussianBlur(inverted, (21, 21), 0)
 
-def process_image(image_path, output_path):
-    # Carregar imagem em escala de cinza
-    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    # Criar efeito de sketch
+    sketch = cv2.divide(gray, 255 - blur, scale=256)
 
-    # Suavizar para reduzir ruído
-    img_blur = cv2.GaussianBlur(img, (5, 5), 0)
+    # 🔥 Aumentar contraste para reforçar os traços
+    sketch = cv2.equalizeHist(sketch)
 
-    # Técnica de "dodge" (clareamento base)
-    img_dodge = cv2.divide(img, img_blur, scale=256)
+    # Converter de volta para imagem PIL
+    result = Image.fromarray(sketch)
 
-    # Destacar linhas com detecção de bordas
-    edges = cv2.Canny(img, 50, 150)
+    # Salvar em buffer
+    img_io = io.BytesIO()
+    result.save(img_io, "PNG")
+    img_io.seek(0)
 
-    # Inverter para linhas pretas no fundo branco
-    edges_inv = cv2.bitwise_not(edges)
-
-    # Combinar resultado (dodge + linhas)
-    final = cv2.bitwise_and(img_dodge, edges_inv)
-
-    # Binarizar para estilo decalque forte
-    final = cv2.adaptiveThreshold(
-        final, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 9, 5
-    )
-
-    cv2.imwrite(output_path, final)
-
-@app.route("/upload", methods=["POST"])
-def upload_file():
-    if "file" not in request.files:
-        return jsonify({"error": "Nenhum arquivo enviado"}), 400
-    file = request.files["file"]
-    if file.filename == "":
-        return jsonify({"error": "Nenhum arquivo selecionado"}), 400
-    if file and allowed_file(file.filename):
-        filename = secure_filename(file.filename)
-        input_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-        output_path = os.path.join(app.config["PROCESSED_FOLDER"], filename)
-        file.save(input_path)
-
-        # Processar imagem
-        process_image(input_path, output_path)
-
-        return send_file(output_path, mimetype="image/png")
-
-    return jsonify({"error": "Tipo de arquivo não permitido"}), 400
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    return img_io
