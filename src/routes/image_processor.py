@@ -35,3 +35,16 @@ def process_image(file):
     img_io.seek(0)
 
     return img_io
+from flask import Blueprint, request, send_file
+
+image_bp = Blueprint("image", __name__)
+
+@image_bp.route("/process", methods=["POST"])
+def process():
+    if "file" not in request.files:
+        return {"error": "Nenhum arquivo enviado"}, 400
+
+    file = request.files["file"]
+    result = process_image(file)
+
+    return send_file(result, mimetype="image/png")
