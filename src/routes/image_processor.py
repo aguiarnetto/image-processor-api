@@ -14,8 +14,8 @@ def process_image(file):
     # Inverter a imagem
     inverted = 255 - gray
 
-    # Aplicar blur (reduzido de 21 → 17 para menos lavagem e mais detalhe)
-    blur = cv2.GaussianBlur(inverted, (31, 31), 0)
+    # Aplicar blur (reduzido de 21 → 15 para menos lavagem e mais detalhe)
+    blur = cv2.GaussianBlur(inverted, (15, 15), 0)
 
     # Criar efeito de sketch (divisão)
     sketch = cv2.divide(gray, 255 - blur, scale=256)
