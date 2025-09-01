@@ -1,50 +1,75 @@
-import cv2 
+import cv2
 import numpy as np
-from PIL import Image
+import uuid
 import io
+from PIL import Image
 
+# Função auxiliar para salvar etapas (debug opcional)
+def save_step(img, step_name):
+    debug = False  # ✅ coloque True se quiser salvar steps
+    if debug:
+        cv2.imwrite(f"/tmp/{step_name}.jpg", img)
+
+# Função para aplicar ajuste de níveis
+def apply_levels(img, in_black, gamma, in_white):
+    # Normalizar para float
+    img_float = img.astype(np.float32) / 255.0
+    # Aplicar níveis
+    img_adj = np.clip((img_float - (in_black / 255.0)) / ((in_white - in_black) / 255.0), 0, 1)
+    img_gamma = np.power(img_adj, 1.0 / gamma)
+    return np.uint8(img_gamma * 255)
+
+# Função para aplicar unsharp mask (máscara de nitidez)
+def apply_unsharp_mask(image, radius=1.0, threshold=0, amount=1.0):
+    blurred = cv2.GaussianBlur(image, (0, 0), radius)
+    mask = cv2.addWeighted(image, 1.0 + amount, blurred, -amount, 0)
+    # Limiar para preservar áreas lisas
+    low_contrast_mask = np.abs(image - blurred) < threshold
+    np.copyto(mask, image, where=low_contrast_mask)
+    return mask
+
+# Função principal de processamento
 def process_image(file):
-    # Abrir imagem recebida
-    image = Image.open(file.stream).convert("RGB")
-    img_array = np.array(image)
+    # Ler imagem do upload
+    in_memory_file = np.frombuffer(file.read(), np.uint8)
+    img = cv2.imdecode(in_memory_file, cv2.IMREAD_COLOR)
 
-    # Converter para escala de cinza
-    gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
+    # Etapa 1: Tons de cinza
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    save_step(gray, "1_gray")
 
-    # Inverter a imagem
-    inverted = 255 - gray
+    # Etapa 2: Inverter
+    inverted = cv2.bitwise_not(gray)
+    save_step(inverted, "2_inverted")
 
-    # Aplicar blur (reduzido de 21 → 15 para menos lavagem e mais detalhe)
-    blur = cv2.GaussianBlur(inverted, (15, 15), 0)
+    # Etapa 3: Dodge (subexposição)
+    inverted_blur = cv2.GaussianBlur(inverted, (0, 0), 2.0)
+    dodge = cv2.divide(gray, 255 - inverted_blur, scale=256.0)
+    save_step(dodge, "3_dodge")
 
-    # Criar efeito de sketch (divisão)
-    sketch = cv2.divide(gray, 255 - blur, scale=256)
+    # Etapa 4: Ajuste de níveis (223;1.32;255)
+    levels_adjusted = apply_levels(dodge, 223, 1.32, 255)
+    save_step(levels_adjusted, "4_levels1")
 
-    # Equalizar histograma para reforçar contraste
-    sketch = cv2.equalizeHist(sketch)
+    # Etapa 5: Máscara de nitidez (200%, raio 1.4, limiar 6)
+    sharpened = apply_unsharp_mask(levels_adjusted, radius=1.4, threshold=6, amount=2.0)
+    save_step(sharpened, "5_sharpened")
 
-    # Ajustar contraste extra (puxa mais os pretos e brancos)
-    sketch = cv2.convertScaleAbs(sketch, alpha=1.2, beta=0)
+    # Etapa 6: Níveis finais (0;0.70;164)
+    final = apply_levels(sharpened, 0, 0.70, 164)
+    save_step(final, "6_levels2")
 
-    # Converter de volta para imagem PIL
-    result = Image.fromarray(sketch)
+    # 🔥 Garantir que a imagem seja achatada (1 canal → 3 canais)
+    final_bgr = cv2.cvtColor(final, cv2.COLOR_GRAY2BGR)
 
-    # Salvar em buffer
+    # Salvar em JPG
+    temp_filename = f"/tmp/{uuid.uuid4()}.jpg"
+    cv2.imwrite(temp_filename, final_bgr)
+
+    # Retornar como buffer
     img_io = io.BytesIO()
-    result.save(img_io, "PNG")
+    pil_img = Image.open(temp_filename)
+    pil_img.save(img_io, "JPEG", quality=95)
     img_io.seek(0)
 
     return img_io
-from flask import Blueprint, request, send_file
-
-image_bp = Blueprint("image", __name__)
-
-@image_bp.route("/process", methods=["POST"])
-def process():
-    if "file" not in request.files:
-        return {"error": "Nenhum arquivo enviado"}, 400
-
-    file = request.files["file"]
-    result = process_image(file)
-
-    return send_file(result, mimetype="image/png")
