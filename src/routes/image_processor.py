@@ -4,13 +4,21 @@ import cv2
 import numpy as np
 from flask import Blueprint, request, send_file, jsonify
 
+# =====================
+# ADICIONE APENAS ESTO
+# =====================
+from flask_cors import CORS
+
 # Mantém o mesmo nome do blueprint para o main.py
 image_bp = Blueprint("image_bp", __name__)
+
+# Habilita CORS **para todas as rotas deste blueprint**
+CORS(image_bp, resources={r"/*": {"origins": "*"}})
+# =====================
 
 # ------------------------
 # Funções auxiliares
 # ------------------------
-
 def color_dodge(base_gray: np.ndarray, blend_gray: np.ndarray) -> np.ndarray:
     base = base_gray.astype(np.float32)
     blend = blend_gray.astype(np.float32)
@@ -40,7 +48,6 @@ def unsharp_mask(img: np.ndarray, radius: float, amount: float, threshold: float
 # ------------------------
 # Rota principal
 # ------------------------
-
 @image_bp.route("/process", methods=["POST"])
 def process():
     if "file" not in request.files:
@@ -71,14 +78,9 @@ def process():
     # ------------------------
     # Garantir fundo branco (3 canais BGR)
     # ------------------------
-    # Cria fundo branco
     h, w = leveled.shape
     white_bg = np.full((h, w, 3), 255, dtype=np.uint8)
-
-    # Copia a imagem em escala de cinza para os 3 canais
     leveled_rgb = cv2.cvtColor(leveled, cv2.COLOR_GRAY2BGR)
-
-    # Combina com o fundo branco (não há transparência, mas assegura RGB correto)
     final_img = cv2.addWeighted(leveled_rgb, 1.0, white_bg, 0.0, 0)
 
     # ------------------------
