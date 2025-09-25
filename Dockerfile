@@ -1,5 +1,5 @@
 # Etapa 1: Usar uma imagem base Python oficial e leve
-FROM FROM python:3.11-slim-bullseye
+FROM python:3.11-slim-bullseye
 
 # Etapa 2: Definir o diretório de trabalho dentro do contêiner
 WORKDIR /app
