@@ -18,4 +18,5 @@ COPY . .
 EXPOSE 10000
 
 # Etapa 7: Comando para iniciar a aplicação
-CMD ["gunicorn", "src.main:app", "--bind", "0.0.0.0:$PORT", "--timeout", "120"]
+CMD gunicorn src.main:app --bind "0.0.0.0:$PORT" --timeout 120
+
