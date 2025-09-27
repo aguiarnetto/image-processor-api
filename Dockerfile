@@ -14,15 +14,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Etapa 5: Copiar todo o código da sua aplicação para o contêiner
 COPY . .
 
-# --- COMANDOS DE DEBUG AQUI ---
-RUN ls -la /app
-RUN echo $PYTHONPATH
-RUN python3.11 -c "import sys; print(sys.path)"
-# --- FIM DOS COMANDOS DE DEBUG ---
-
 # Etapa 6: Expor a porta que a aplicação usará (informativo)
 EXPOSE 10000
 
-# Forcar rebuild - Remova esta linha após a depuração
 # Etapa 7: Comando para iniciar a aplicação
-CMD gunicorn --pythonpath . app:app --bind "0.0.0.0:$PORT" --timeout 120
+# ALTERAÇÃO AQUI: de 'app:app' para 'src.app:app'
+CMD gunicorn src.app:app --bind "0.0.0.0:$PORT" --timeout 120
