@@ -51,16 +51,15 @@ def process_image():
             # Combinar bordas com a imagem original em tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
-            # Clarear (reduzir tons de cinza em ~80%)
-            processed_image = cv2.convertScaleAbs(processed_image, alpha=1.0, beta=200)
+            # Clarear sem apagar os traços
+            processed_image = cv2.convertScaleAbs(processed_image, alpha=1.2, beta=50)
 
-            _logger.info("Imagem processada com sucesso (clareamento aplicado).")
+            _logger.info("Imagem processada com sucesso (contornos realçados e clareada).")
 
-            # Codificar a imagem processada para JPG (compatível com Explorer)
+            # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             response = img_encoded.tobytes()
-
-            _logger.info("Imagem codificada em JPG.")
+            _logger.info("Imagem codificada para JPG.")
 
             return send_file(
                 io.BytesIO(response),
