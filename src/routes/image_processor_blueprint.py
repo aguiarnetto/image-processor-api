@@ -35,27 +35,22 @@ def process_image():
                 return jsonify({"error": "Falha ao decodificar a imagem"}), 400
 
             # -------------------------------
-            # Processamento estilo decalque
+            # Novo processamento da imagem
             # -------------------------------
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # Reduz ruído preservando bordas
-            gray = cv2.medianBlur(gray, 5)
+            # Suavizar ruídos
+            blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
-            # Detecta bordas
-            edges = cv2.adaptiveThreshold(
-                gray,
-                255,
-                cv2.ADAPTIVE_THRESH_MEAN_C,
-                cv2.THRESH_BINARY,
-                blockSize=9,
-                C=5
-            )
+            # Detecção de bordas (Laplacian dá traço mais "desenhado")
+            edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
 
-            # Inverte para linhas escuras no fundo claro
-            processed_image = cv2.bitwise_not(edges)
+            # Inverter para deixar linhas escuras em fundo claro
+            edges_inv = cv2.bitwise_not(edges)
 
-            _logger.info("Imagem processada com sucesso (modo decalque).")
+            # Combinar bordas com a imagem original em tons de cinza
+            processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
+            _logger.info("Imagem processada com sucesso (contornos realçados).")
 
             # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image)
@@ -78,7 +73,9 @@ def process_image():
 
 # Criação da aplicação Flask
 app = Flask(__name__)
-CORS(app)
+CORS(app)  # Habilita CORS para todas as rotas
+# Se quiser restringir apenas ao Hoppscotch:
+# CORS(app, resources={r"/*": {"origins": "https://hoppscotch.io"}})
 
 # Registro do Blueprint
 app.register_blueprint(image_bp)
