@@ -26,7 +26,7 @@ def process_image():
             _logger.info(f"Arquivo recebido: {file.filename}")
             # Ler a imagem
             filestr = file.read()
-            npimg = np.frombuffer(filestr, np.uint8)
+            npimg = np.frombuffer(filestr, np.uint8)  # Uso correto do np.frombuffer
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
             _logger.info("Imagem decodificada com sucesso.")
 
@@ -35,22 +35,24 @@ def process_image():
                 return jsonify({"error": "Falha ao decodificar a imagem"}), 400
 
             # -------------------------------
-            # Novo processamento da imagem
+            # Processamento estilo decalque
             # -------------------------------
-            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # Suavizar ruídos
-            blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+            # Reduz ruído preservando bordas
+            gray = cv2.medianBlur(gray, 5)
 
-            # Detecção de bordas (Laplacian dá traço mais "desenhado")
-            edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
+            # Detecta bordas → linhas pretas no fundo branco
+            processed_image = cv2.adaptiveThreshold(
+                gray,
+                255,
+                cv2.ADAPTIVE_THRESH_MEAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=9,
+                C=5
+            )
 
-            # Inverter para deixar linhas escuras em fundo claro
-            edges_inv = cv2.bitwise_not(edges)
-
-            # Combinar bordas com a imagem original em tons de cinza
-            processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
-            _logger.info("Imagem processada com sucesso (contornos realçados).")
+            _logger.info("Imagem processada com sucesso (modo decalque).")
 
             # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image)
