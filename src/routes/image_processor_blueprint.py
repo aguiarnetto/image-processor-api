@@ -51,10 +51,26 @@ def process_image():
             # Combinar bordas com a imagem original em tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
-            # Clarear sem apagar os traços
-            processed_image = cv2.convertScaleAbs(processed_image, alpha=1.2, beta=50)
+            # ============================
+            # Clarear médios (Gamma 1.5 ≈ reduz ~50%)
+            # ============================
+            gamma = 1.5
+            lookup_table = np.array([
+                ((i / 255.0) ** (1.0 / gamma)) * 255 
+                for i in np.arange(256)
+            ]).astype("uint8")
+            processed_image = cv2.LUT(processed_image, lookup_table)
 
-            _logger.info("Imagem processada com sucesso (contornos realçados e clareada).")
+            # ============================
+            # Aumentar nitidez (+20%)
+            # ============================
+            kernel = np.array([[0, -1, 0],
+                               [-1, 5, -1],
+                               [0, -1, 0]])
+            sharpened = cv2.filter2D(processed_image, -1, kernel)
+            processed_image = cv2.addWeighted(processed_image, 0.8, sharpened, 0.2, 0)
+
+            _logger.info("Imagem processada com sucesso (tons médios reduzidos e nitidez aplicada).")
 
             # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
@@ -78,8 +94,6 @@ def process_image():
 # Criação da aplicação Flask
 app = Flask(__name__)
 CORS(app)  # Habilita CORS para todas as rotas
-# Se quiser restringir apenas ao Hoppscotch:
-# CORS(app, resources={r"/*": {"origins": "https://hoppscotch.io"}})
 
 # Registro do Blueprint
 app.register_blueprint(image_bp)
