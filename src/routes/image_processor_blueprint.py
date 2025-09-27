@@ -3,15 +3,7 @@ import io
 import numpy as np
 import cv2
 from flask import Flask, Blueprint, request, jsonify, send_file
-from flask_cors import CORS  # Import para habilitar CORS
-
-# ========================
-# PARÂMETROS EDITÁVEIS
-# ========================
-GAMMA = 2.2        # Clareamento dos tons médios (2.0 ~ 2.5)
-BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar, ex: 11, 15, 21)
-C = 5              # Constante do threshold (quanto maior, mais branco)
-SHARPEN = 0.1      # Fator de nitidez (0 = desliga | 0.1 = suave | 0.3 = forte)
+from flask_cors import CORS
 
 # Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
@@ -45,53 +37,33 @@ def process_image():
             # -------------------------------
             # Processamento da imagem
             # -------------------------------
-            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # Detecção de bordas (Laplacian dá traço mais "desenhado")
-            edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
-            edges_inv = cv2.bitwise_not(edges)
+            # Clareamento via correção gama (remove tons médios)
+            gamma = 3.0
+            invGamma = 1.0 / gamma
+            table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(256)]).astype("uint8")
+            gamma_corrected = cv2.LUT(gray, table)
 
-            # Combinar bordas com a imagem original em tons de cinza
-            processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
-
-            # ============================
-            # Clarear médios com gamma
-            # ============================
-            lookup_table = np.array([
-                ((i / 255.0) ** (1.0 / GAMMA)) * 255
-                for i in np.arange(256)
-            ]).astype("uint8")
-            processed_image = cv2.LUT(processed_image, lookup_table)
-
-            # ============================
-            # Threshold adaptativo
-            # ============================
-            adaptive = cv2.adaptiveThreshold(
-                processed_image,
-                255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            # Filtro adaptativo para reforçar linhas
+            edges = cv2.adaptiveThreshold(
+                gamma_corrected, 255,
+                cv2.ADAPTIVE_THRESH_MEAN_C,
                 cv2.THRESH_BINARY,
-                BLOCKSIZE,
-                C
+                blockSize=9,  # menor valor = contraste mais forte
+                C=15          # maior valor = mais branco
             )
 
-            # Misturar threshold com original (suaviza excesso)
-            processed_image = cv2.addWeighted(processed_image, 0.5, adaptive, 0.5, 0)
+            # Binarização final (remove quase todos os tons intermediários)
+            _, binary = cv2.threshold(edges, 180, 255, cv2.THRESH_BINARY)
 
-            # ============================
-            # Nitidez
-            # ============================
-            if SHARPEN > 0:
-                kernel = np.array([[0, -1, 0],
-                                   [-1, 5, -1],
-                                   [0, -1, 0]])
-                sharpened = cv2.filter2D(processed_image, -1, kernel)
-                processed_image = cv2.addWeighted(processed_image, 1 - SHARPEN, sharpened, SHARPEN, 0)
+            # Morfologia leve para reforçar traços
+            kernel = np.ones((2, 2), np.uint8)
+            processed_image = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
 
-            _logger.info("Imagem processada com sucesso.")
+            _logger.info("Imagem processada com sucesso (tons médios removidos).")
 
-            # Codificar a imagem processada para JPG
+            # Codificar em JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             response = img_encoded.tobytes()
             _logger.info("Imagem codificada para JPG.")
@@ -112,9 +84,7 @@ def process_image():
 
 # Criação da aplicação Flask
 app = Flask(__name__)
-CORS(app)  # Habilita CORS para todas as rotas
-
-# Registro do Blueprint
+CORS(app)
 app.register_blueprint(image_bp)
 
 if __name__ == '__main__':
