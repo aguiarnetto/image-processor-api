@@ -3,7 +3,9 @@ import io
 import numpy as np
 import cv2
 from flask import Flask, Blueprint, request, jsonify, send_file
+from flask_cors import CORS  # Import para habilitar CORS
 
+# Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
 _logger = logging.getLogger(__name__)
 
@@ -24,7 +26,7 @@ def process_image():
             _logger.info(f"Arquivo recebido: {file.filename}")
             # Ler a imagem
             filestr = file.read()
-            npimg = np.frombuffer(filestr, np.uint8) # ALTERAÇÃO AQUI: np.fromstring para np.frombuffer
+            npimg = np.frombuffer(filestr, np.uint8)  # Uso correto do np.frombuffer
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
             _logger.info("Imagem decodificada com sucesso.")
 
@@ -35,7 +37,7 @@ def process_image():
             # Processamento da imagem
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-            edges = cv2.Canny(blurred_image, 50, 150) # Ajustar estes thresholds
+            edges = cv2.Canny(blurred_image, 50, 150)  # Thresholds ajustáveis
             processed_image = cv2.bitwise_not(edges)
             _logger.info("Imagem processada com sucesso.")
 
@@ -57,8 +59,14 @@ def process_image():
     _logger.error("Condição de arquivo não atendida.")
     return jsonify({"error": "Erro desconhecido no upload do arquivo"}), 500
 
-# Crie a instância do Flask e registre o Blueprint (ADIÇÃO AQUI)
+
+# Criação da aplicação Flask
 app = Flask(__name__)
+CORS(app)  # Habilita CORS para todas as rotas
+# Se quiser restringir apenas ao Hoppscotch:
+# CORS(app, resources={r"/*": {"origins": "https://hoppscotch.io"}})
+
+# Registro do Blueprint
 app.register_blueprint(image_bp)
 
 if __name__ == '__main__':
