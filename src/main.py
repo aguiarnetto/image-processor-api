@@ -11,9 +11,10 @@ if BASE_DIR not in sys.path:
 
 # === Importa blueprint ===
 try:
-    from routes.image_processor import image_bp
+    # ALTERAÇÃO AQUI: Atualizado para o novo nome do arquivo
+    from .routes.image_processor_blueprint import image_bp
 except ImportError as e:
-    raise ImportError(f"Erro ao importar 'image_bp' de routes.image_processor: {e}")
+    raise ImportError(f"Erro ao importar 'image_bp' de routes.image_processor_blueprint: {e}")
 
 # === Configuração da aplicação ===
 app = Flask(__name__)
