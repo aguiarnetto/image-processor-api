@@ -5,6 +5,14 @@ import cv2
 from flask import Flask, Blueprint, request, jsonify, send_file
 from flask_cors import CORS  # Import para habilitar CORS
 
+# ========================
+# PARÂMETROS EDITÁVEIS
+# ========================
+GAMMA = 2.2        # Clareamento dos tons médios (2.0 ~ 2.5)
+BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar, ex: 11, 15, 21)
+C = 5              # Constante do threshold (quanto maior, mais branco)
+SHARPEN = 0.1      # Fator de nitidez (0 = desliga | 0.1 = suave | 0.3 = forte)
+
 # Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
 _logger = logging.getLogger(__name__)
@@ -38,39 +46,50 @@ def process_image():
             # Processamento da imagem
             # -------------------------------
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-            # Suavizar ruídos
             blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
             # Detecção de bordas (Laplacian dá traço mais "desenhado")
             edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
-
-            # Inverter para deixar linhas escuras em fundo claro
             edges_inv = cv2.bitwise_not(edges)
 
             # Combinar bordas com a imagem original em tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
             # ============================
-            # Clarear médios (Gamma 1.5 ≈ reduz ~50%)
+            # Clarear médios com gamma
             # ============================
-            gamma = 1.5
             lookup_table = np.array([
-                ((i / 255.0) ** (1.0 / gamma)) * 255 
+                ((i / 255.0) ** (1.0 / GAMMA)) * 255
                 for i in np.arange(256)
             ]).astype("uint8")
             processed_image = cv2.LUT(processed_image, lookup_table)
 
             # ============================
-            # Aumentar nitidez (+20%)
+            # Threshold adaptativo
             # ============================
-            kernel = np.array([[0, -1, 0],
-                               [-1, 5, -1],
-                               [0, -1, 0]])
-            sharpened = cv2.filter2D(processed_image, -1, kernel)
-            processed_image = cv2.addWeighted(processed_image, 0.8, sharpened, 0.2, 0)
+            adaptive = cv2.adaptiveThreshold(
+                processed_image,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY,
+                BLOCKSIZE,
+                C
+            )
 
-            _logger.info("Imagem processada com sucesso (tons médios reduzidos e nitidez aplicada).")
+            # Misturar threshold com original (suaviza excesso)
+            processed_image = cv2.addWeighted(processed_image, 0.5, adaptive, 0.5, 0)
+
+            # ============================
+            # Nitidez
+            # ============================
+            if SHARPEN > 0:
+                kernel = np.array([[0, -1, 0],
+                                   [-1, 5, -1],
+                                   [0, -1, 0]])
+                sharpened = cv2.filter2D(processed_image, -1, kernel)
+                processed_image = cv2.addWeighted(processed_image, 1 - SHARPEN, sharpened, SHARPEN, 0)
+
+            _logger.info("Imagem processada com sucesso.")
 
             # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
