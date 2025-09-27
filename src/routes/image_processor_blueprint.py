@@ -13,19 +13,25 @@ _logger = logging.getLogger(__name__)
 def process_image():
     _logger.info("Requisição de processamento de imagem recebida.")
     if "file" not in request.files:
+        _logger.error("Nenhum arquivo 'file' na requisição.")
         return jsonify({"error": "Nenhum arquivo 'file' na requisição"}), 400
 
     file = request.files["file"]
     if file.filename == "":
+        _logger.error("Nome de arquivo vazio.")
         return jsonify({"error": "Nenhum arquivo selecionado"}), 400
 
     if file:
         try:
+            _logger.info(f"Arquivo recebido: {file.filename}")
+            # Ler a imagem
             filestr = file.read()
             npimg = np.frombuffer(filestr, np.uint8)
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+            _logger.info("Imagem decodificada com sucesso.")
 
             if image is None:
+                _logger.error("Falha ao decodificar a imagem. Verifique o formato.")
                 return jsonify({"error": "Falha ao decodificar a imagem"}), 400
 
             # -------------------------------
@@ -45,14 +51,16 @@ def process_image():
             # Combinar bordas com a imagem original em tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
-            # Clarear em 80% (reduzir cinza)
-            processed_image = cv2.convertScaleAbs(processed_image, alpha=0.2, beta=0)
+            # Clarear (reduzir tons de cinza em ~80%)
+            processed_image = cv2.convertScaleAbs(processed_image, alpha=1.0, beta=200)
 
-            # -------------------------------
-            # Exportar como JPG
-            # -------------------------------
-            _, img_encoded = cv2.imencode(".jpg", processed_image)
+            _logger.info("Imagem processada com sucesso (clareamento aplicado).")
+
+            # Codificar a imagem processada para JPG (compatível com Explorer)
+            _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
             response = img_encoded.tobytes()
+
+            _logger.info("Imagem codificada em JPG.")
 
             return send_file(
                 io.BytesIO(response),
@@ -64,12 +72,15 @@ def process_image():
             _logger.exception(f"Erro durante o processamento da imagem: {e}")
             return jsonify({"error": f"Erro ao processar a imagem: {str(e)}"}), 500
 
+    _logger.error("Condição de arquivo não atendida.")
     return jsonify({"error": "Erro desconhecido no upload do arquivo"}), 500
 
 
 # Criação da aplicação Flask
 app = Flask(__name__)
 CORS(app)  # Habilita CORS para todas as rotas
+# Se quiser restringir apenas ao Hoppscotch:
+# CORS(app, resources={r"/*": {"origins": "https://hoppscotch.io"}})
 
 # Registro do Blueprint
 app.register_blueprint(image_bp)
