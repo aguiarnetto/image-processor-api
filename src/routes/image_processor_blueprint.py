@@ -26,7 +26,7 @@ def process_image():
             _logger.info(f"Arquivo recebido: {file.filename}")
             # Ler a imagem
             filestr = file.read()
-            npimg = np.frombuffer(filestr, np.uint8)  # Uso correto do np.frombuffer
+            npimg = np.frombuffer(filestr, np.uint8)
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
             _logger.info("Imagem decodificada com sucesso.")
 
@@ -34,12 +34,28 @@ def process_image():
                 _logger.error("Falha ao decodificar a imagem. Verifique o formato.")
                 return jsonify({"error": "Falha ao decodificar a imagem"}), 400
 
-            # Processamento da imagem
-            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-            blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-            edges = cv2.Canny(blurred_image, 50, 150)  # Thresholds ajustáveis
+            # -------------------------------
+            # Processamento estilo decalque
+            # -------------------------------
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+            # Reduz ruído preservando bordas
+            gray = cv2.medianBlur(gray, 5)
+
+            # Detecta bordas
+            edges = cv2.adaptiveThreshold(
+                gray,
+                255,
+                cv2.ADAPTIVE_THRESH_MEAN_C,
+                cv2.THRESH_BINARY,
+                blockSize=9,
+                C=5
+            )
+
+            # Inverte para linhas escuras no fundo claro
             processed_image = cv2.bitwise_not(edges)
-            _logger.info("Imagem processada com sucesso.")
+
+            _logger.info("Imagem processada com sucesso (modo decalque).")
 
             # Codificar a imagem processada para JPG
             _, img_encoded = cv2.imencode(".jpg", processed_image)
@@ -62,9 +78,7 @@ def process_image():
 
 # Criação da aplicação Flask
 app = Flask(__name__)
-CORS(app)  # Habilita CORS para todas as rotas
-# Se quiser restringir apenas ao Hoppscotch:
-# CORS(app, resources={r"/*": {"origins": "https://hoppscotch.io"}})
+CORS(app)
 
 # Registro do Blueprint
 app.register_blueprint(image_bp)
