@@ -8,14 +8,23 @@ from flask_cors import CORS  # Import para habilitar CORS
 # ========================
 # PARÂMETROS EDITÁVEIS
 # ========================
-GAMMA = 2.2        # Clareamento dos tons médios (2.0 ~ 2.5)
-BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar, ex: 11, 15, 21)
+GAMMA = 2.2        # Clareamento dos tons médios (2.0 ~ 2.5 = mais branco)
+BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar: 11, 15, 21...)
 C = 5              # Constante do threshold (quanto maior, mais branco)
-SHARPEN = 0.1      # Fator de nitidez (0 = desliga | 0.1 = suave | 0.3 = forte)
+SHARPEN = 0.15     # Fator de nitidez (0 = off | 0.1 = suave | 0.3 = forte)
+CLAHE_CLIP = 2.0   # Limite de contraste do CLAHE (1.5 ~ 3.0)
+CLAHE_GRID = 8     # Tamanho da grade CLAHE (8x8 até 16x16)
 
 # Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
 _logger = logging.getLogger(__name__)
+
+def smooth_gamma_curve(gamma: float):
+    """Cria uma curva gamma suave que afeta mais os médios do que os extremos."""
+    lut = np.arange(256, dtype=np.float32) / 255.0
+    lut = np.power(lut, 1.0 / gamma)  # aplica gamma
+    lut = np.clip(lut * 255, 0, 255).astype("uint8")
+    return lut
 
 @image_bp.route("/process", methods=["POST"])
 def process_image():
@@ -48,36 +57,30 @@ def process_image():
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
-            # Detecção de bordas (Laplacian dá traço mais "desenhado")
+            # Detecção de bordas
             edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
             edges_inv = cv2.bitwise_not(edges)
 
-            # Combinar bordas com a imagem original em tons de cinza
+            # Combinar bordas com a imagem em tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
             # ============================
-            # Clarear médios com gamma
+            # Gamma suave nos tons médios
             # ============================
-            lookup_table = np.array([
-                ((i / 255.0) ** (1.0 / GAMMA)) * 255
-                for i in np.arange(256)
-            ]).astype("uint8")
-            processed_image = cv2.LUT(processed_image, lookup_table)
+            gamma_lut = smooth_gamma_curve(GAMMA)
+            processed_image = cv2.LUT(processed_image, gamma_lut)
 
             # ============================
-            # Threshold adaptativo
+            # CLAHE para contraste local
             # ============================
-            adaptive = cv2.adaptiveThreshold(
-                processed_image,
-                255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY,
-                BLOCKSIZE,
-                C
-            )
+            clahe = cv2.createCLAHE(clipLimit=CLAHE_CLIP, tileGridSize=(CLAHE_GRID, CLAHE_GRID))
+            processed_image = clahe.apply(processed_image)
 
-            # Misturar threshold com original (suaviza excesso)
-            processed_image = cv2.addWeighted(processed_image, 0.5, adaptive, 0.5, 0)
+            # ============================
+            # Threshold truncado
+            # ============================
+            _, trunc = cv2.threshold(processed_image, 200, 255, cv2.THRESH_TRUNC)
+            processed_image = trunc
 
             # ============================
             # Nitidez
