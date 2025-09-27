@@ -2,7 +2,7 @@ import logging
 import io
 import numpy as np
 import cv2
-from flask import Blueprint, request, jsonify, send_file
+from flask import Flask, Blueprint, request, jsonify, send_file
 
 image_bp = Blueprint("image_processor", __name__)
 _logger = logging.getLogger(__name__)
@@ -11,8 +11,8 @@ _logger = logging.getLogger(__name__)
 def process_image():
     _logger.info("Requisição de processamento de imagem recebida.")
     if "file" not in request.files:
-        _logger.error("Nenhum arquivo \'file\' na requisição.")
-        return jsonify({"error": "Nenhum arquivo \'file\' na requisição"}), 400
+        _logger.error("Nenhum arquivo 'file' na requisição.")
+        return jsonify({"error": "Nenhum arquivo 'file' na requisição"}), 400
 
     file = request.files["file"]
     if file.filename == "":
@@ -24,7 +24,7 @@ def process_image():
             _logger.info(f"Arquivo recebido: {file.filename}")
             # Ler a imagem
             filestr = file.read()
-            npimg = np.fromstring(filestr, np.uint8)
+            npimg = np.frombuffer(filestr, np.uint8) # ALTERAÇÃO AQUI: np.fromstring para np.frombuffer
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
             _logger.info("Imagem decodificada com sucesso.")
 
@@ -56,3 +56,10 @@ def process_image():
 
     _logger.error("Condição de arquivo não atendida.")
     return jsonify({"error": "Erro desconhecido no upload do arquivo"}), 500
+
+# Crie a instância do Flask e registre o Blueprint (ADIÇÃO AQUI)
+app = Flask(__name__)
+app.register_blueprint(image_bp)
+
+if __name__ == '__main__':
+    app.run(debug=True)
