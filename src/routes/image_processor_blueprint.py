@@ -8,10 +8,11 @@ from flask_cors import CORS  # Import para habilitar CORS
 # ========================
 # PARÂMETROS EDITÁVEIS
 # ========================
-GAMMA = 2.2        # Clareamento dos tons médios (2.0 ~ 2.5)
-BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar, ex: 11, 15, 21)
-C = 5              # Constante do threshold (quanto maior, mais branco)
-SHARPEN = 0.1      # Fator de nitidez (0 = desliga | 0.1 = suave | 0.3 = forte)
+GAMMA = 1.9        # Clareamento dos tons médios (1.8 ~ 2.0 preserva mais detalhe)
+BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar: 11, 15, 21)
+C = 7              # Constante do threshold (quanto maior, mais branco)
+SHARPEN = 0.25     # Força da nitidez (0 = off, 0.1 = leve, 0.3 = forte)
+UPSCALE = 2.0      # Fator de aumento da resolução (1.0 = sem alteração)
 
 # Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
@@ -42,21 +43,27 @@ def process_image():
                 _logger.error("Falha ao decodificar a imagem. Verifique o formato.")
                 return jsonify({"error": "Falha ao decodificar a imagem"}), 400
 
-            # -------------------------------
-            # Processamento da imagem
-            # -------------------------------
+            # ============================
+            # Aumentar resolução
+            # ============================
+            if UPSCALE > 1.0:
+                image = cv2.resize(image, None, fx=UPSCALE, fy=UPSCALE, interpolation=cv2.INTER_CUBIC)
+
+            # ============================
+            # Processamento principal
+            # ============================
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
-            # Detecção de bordas (Laplacian dá traço mais "desenhado")
+            # Detecção de bordas
             edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=5)
             edges_inv = cv2.bitwise_not(edges)
 
-            # Combinar bordas com a imagem original em tons de cinza
+            # Combinar bordas com tons de cinza
             processed_image = cv2.addWeighted(gray_image, 0.7, edges_inv, 0.3, 0)
 
             # ============================
-            # Clarear médios com gamma
+            # Clareamento via Gamma
             # ============================
             lookup_table = np.array([
                 ((i / 255.0) ** (1.0 / GAMMA)) * 255
@@ -75,24 +82,22 @@ def process_image():
                 BLOCKSIZE,
                 C
             )
-
-            # Misturar threshold com original (suaviza excesso)
             processed_image = cv2.addWeighted(processed_image, 0.5, adaptive, 0.5, 0)
 
             # ============================
-            # Nitidez
+            # Nitidez (Unsharp Mask)
             # ============================
             if SHARPEN > 0:
-                kernel = np.array([[0, -1, 0],
-                                   [-1, 5, -1],
-                                   [0, -1, 0]])
-                sharpened = cv2.filter2D(processed_image, -1, kernel)
-                processed_image = cv2.addWeighted(processed_image, 1 - SHARPEN, sharpened, SHARPEN, 0)
+                blur = cv2.GaussianBlur(processed_image, (0, 0), 3)
+                sharpened = cv2.addWeighted(processed_image, 1 + SHARPEN, blur, -SHARPEN, 0)
+                processed_image = sharpened
 
             _logger.info("Imagem processada com sucesso.")
 
-            # Codificar a imagem processada para JPG
-            _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
+            # ============================
+            # Salvar em JPG alta qualidade
+            # ============================
+            _, img_encoded = cv2.imencode(".jpg", processed_image, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
             response = img_encoded.tobytes()
             _logger.info("Imagem codificada para JPG.")
 
