@@ -11,7 +11,7 @@ from flask_cors import CORS  # Import para habilitar CORS
 GAMMA = 1.9        # Clareamento dos tons médios (1.8 ~ 2.0 preserva mais detalhe)
 BLOCKSIZE = 15     # Tamanho do bloco no threshold (ímpar: 11, 15, 21)
 C = 7              # Constante do threshold (quanto maior, mais branco)
-SHARPEN = 0.1      # Nitidez mais suave (0.08 ~ 0.12 recomendado)
+SHARPEN = 0.02      # Nitidez mais suave (0.08 ~ 0.12 recomendado)
 UPSCALE = 2.0      # Fator de aumento da resolução (1.0 = sem alteração)
 
 # Configuração do Blueprint
