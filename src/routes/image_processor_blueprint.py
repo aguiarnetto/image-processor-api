@@ -8,13 +8,13 @@ from flask_cors import CORS  # Import para habilitar CORS
 # ========================
 # PARÂMETROS EDITÁVEIS
 # ========================
-GAMMA = 2.2        # Clareamento mais forte (imagem entra mais branca)
+GAMMA = 2.2        # Clareamento mais forte → imagem entra mais branca
 BLOCKSIZE = 21     # Blocos maiores suavizam a variação de tons
 C = 10             # Constante maior → fundo mais branco
-SHARPEN = 0.01     # Nitidez bem suave
+SHARPEN = 0.01     # Nitidez bem mais suave
 UPSCALE = 2.0      # Fator de aumento da resolução (1.0 = sem alteração)
-EDGE_WEIGHT = 0.2  # Peso das bordas no mix
-BASE_WEIGHT = 0.8  # Peso da imagem base no mix
+EDGE_WEIGHT = 0.2  # Peso das bordas no mix (reduzido)
+BASE_WEIGHT = 0.8  # Peso da imagem original no mix
 
 # Configuração do Blueprint
 image_bp = Blueprint("image_processor", __name__)
@@ -35,7 +35,6 @@ def process_image():
     if file:
         try:
             _logger.info(f"Arquivo recebido: {file.filename}")
-            # Ler a imagem
             filestr = file.read()
             npimg = np.frombuffer(filestr, np.uint8)
             image = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
@@ -56,28 +55,24 @@ def process_image():
             # ============================
             gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-            # Blur inicial para limpar ruídos
+            # Pequeno blur inicial já ajuda a "limpar" o ruído
             blurred_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
 
-            # Detecção de bordas mais suave
+            # Detecção de bordas menos agressiva
             edges = cv2.Laplacian(blurred_image, cv2.CV_8U, ksize=3)
             edges_inv = cv2.bitwise_not(edges)
 
-            # Mistura base + bordas (peso reduzido)
+            # Mistura mais leve das bordas
             processed_image = cv2.addWeighted(gray_image, BASE_WEIGHT, edges_inv, EDGE_WEIGHT, 0)
 
-            # ============================
-            # Clareamento via Gamma
-            # ============================
+            # Gamma correction (clarear a imagem já no início)
             lookup_table = np.array([
                 ((i / 255.0) ** (1.0 / GAMMA)) * 255
                 for i in np.arange(256)
             ]).astype("uint8")
             processed_image = cv2.LUT(processed_image, lookup_table)
 
-            # ============================
-            # Threshold adaptativo suave
-            # ============================
+            # Threshold adaptativo mais suave
             adaptive = cv2.adaptiveThreshold(
                 processed_image,
                 255,
@@ -95,7 +90,7 @@ def process_image():
             processed_image = cv2.normalize(processed_image, None, 0, 255, cv2.NORM_MINMAX)
 
             # ============================
-            # Nitidez muito suave
+            # Nitidez mais suave
             # ============================
             if SHARPEN > 0:
                 blur = cv2.GaussianBlur(processed_image, (0, 0), 3)
@@ -134,4 +129,3 @@ app.register_blueprint(image_bp)
 
 if __name__ == '__main__':
     app.run(debug=True)
-``
